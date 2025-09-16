@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Usernames & Passwords — Local Vault</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;}
+    body{max-width:980px;margin:28px auto;padding:18px;color:#0b1220}
+    h1{font-size:20px;margin-bottom:6px}
+    p.note{margin-top:0;margin-bottom:18px;color:#444;font-size:13px}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{border:1px solid #e6e9ef;padding:10px;text-align:left}
+    th{background:#f7f9fc;font-weight:600}
+    tr:nth-child(even){background:#fbfcfe}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    button{padding:8px 10px;border-radius:8px;border:1px solid #cfd6e6;background:white;cursor:pointer}
+    button.primary{background:#0f62fe;color:white;border-color:#0f62fe}
+    input,select{padding:8px;border:1px solid #d6dbe8;border-radius:6px}
+    .small{font-size:13px;padding:6px 8px}
+    .muted{color:#6c7887;font-size:13px}
+    .inline{display:inline-flex;gap:6px;align-items:center}
+    .danger{border-color:#ff6b6b;color:#b80000}
+    .actions button{margin-right:6px}
+    .center{text-align:center}
+    footer{margin-top:20px;color:#666;font-size:13px}
+  </style>
+</head>
+<body>
+  <h1>Usernames & Passwords — Local Vault</h1>
+  <p class="note">This page keeps credentials only in your browser (localStorage) and does <strong>not</strong> send data anywhere. Storing passwords in plaintext is insecure — use this only for short-term local testing or learning. Do not paste real production passwords here.</p>
+
+  <div class="controls">
+    <div class="inline">
+      <label class="muted" for="username">Username</label>
+      <input id="username" placeholder="username@example.com">
+    </div>
+    <div class="inline">
+      <label class="muted" for="password">Password</label>
+      <input id="password" placeholder="P@ssw0rd!">
+    </div>
+    <button id="addBtn" class="primary">Add entry</button>
+    <button id="downloadBtn" title="Download as CSV">Download CSV</button>
+    <button id="clearBtn" class="danger" title="Clear all entries">Clear all</button>
+    <label class="inline" style="margin-left:auto">
+      <input type="checkbox" id="maskToggle" checked> Mask passwords
+    </label>
+  </div>
+
+  <table id="credsTable" aria-label="Credentials table">
+    <thead>
+      <tr>
+        <th style="width:28%">Username</th>
+        <th style="width:36%">Password</th>
+        <th style="width:20%">Notes</th>
+        <th style="width:16%" class="center">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Rows inserted by JS -->
+    </tbody>
+  </table>
+
+  <footer>
+    <strong>Security reminder:</strong> This is a simple demo meant for local/testing use only. For real password management use a dedicated password manager (1Password, Bitwarden, KeePass, etc.).
+  </footer>
+
+  <script>
+    // Sample placeholder entries (safe, dummy values)
+    const SAMPLE = [
+      {username: 'alice@example.local', password: 'Test1234!', notes: 'local test account'},
+      {username: 'bob', password: 'S3cur3P@ss!', notes: 'dev VM'},
+      {username: 'ci_user', password: 'ci_pwd_2025', notes: 'CI service token placeholder'}
+    ];
+
+    const storageKey = 'local_creds_v1';
+    const tableBody = document.querySelector('#credsTable tbody');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const addBtn = document.getElementById('addBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const maskToggle = document.getElementById('maskToggle');
+
+    function load() {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) {
+        localStorage.setItem(storageKey, JSON.stringify(SAMPLE));
+        return SAMPLE.slice();
+      }
+      try { return JSON.parse(raw) } catch(e) { return [] }
+    }
+
+    function save(items) { localStorage.setItem(storageKey, JSON.stringify(items)); }
+
+    function maskIfNeeded(pw) {
+      return maskToggle.checked ? '*'.repeat(Math.max(6, pw.length)) : pw;
+    }
+
+    function render() {
+      const items = load();
+      tableBody.innerHTML = '';
+      items.forEach((it, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${escapeHtml(it.username)}</td>
+          <td><span class="pw" data-idx="${idx}">${escapeHtml(maskIfNeeded(it.password))}</span></td>
+          <td>${escapeHtml(it.notes || '')}</td>
+          <td class="actions center">
+            <button data-action="copy" data-idx="${idx}" title="Copy password">Copy</button>
+            <button data-action="reveal" data-idx="${idx}" title="Reveal / Edit">Reveal</button>
+            <button data-action="delete" data-idx="${idx}" title="Delete">Delete</button>
+          </td>`;
+        tableBody.appendChild(tr);
+      });
+    }
+
+    function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    addBtn.addEventListener('click', () => {
+      const u = usernameInput.value.trim();
+      const p = passwordInput.value;
+      if (!u || !p) { alert('Please provide both username and password.'); return; }
+      const items = load();
+      items.unshift({username:u, password:p, notes:''});
+      save(items);
+      usernameInput.value = '';
+      passwordInput.value = '';
+      render();
+    });
+
+    maskToggle.addEventListener('change', render);
+
+    tableBody.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button');
+      if(!btn) return;
+      const action = btn.dataset.action;
+      const idx = Number(btn.dataset.idx);
+      const items = load();
+      if (action === 'copy') {
+        navigator.clipboard.writeText(items[idx].password).then(()=>{
+          btn.textContent = 'Copied';
+          setTimeout(()=>btn.textContent='Copy',900);
+        }).catch(()=>alert('Copy failed - your browser may block clipboard access'));
+      } else if (action === 'reveal') {
+        const newPw = prompt('Edit password for '+items[idx].username, items[idx].password);
+        if (newPw === null) return; // cancelled
+        items[idx].password = String(newPw);
+        save(items); render();
+      } else if (action === 'delete') {
+        if (!confirm('Delete this entry?')) return;
+        items.splice(idx,1); save(items); render();
+      }
+    });
+
+    downloadBtn.addEventListener('click', ()=>{
+      const items = load();
+      if (!items.length) return alert('No entries to download');
+      const rows = [['username','password','notes'], ...items.map(i=>[i.username,i.password,i.notes || ''])];
+      const csv = rows.map(r => r.map(cell => '"'+String(cell).replace(/"/g,'""')+'"').join(',')).join('\n');
+      const blob = new Blob([csv], {type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'credentials.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    });
+
+    clearBtn.addEventListener('click', ()=>{
+      if (!confirm('Clear ALL entries from this browser? This cannot be undone.')) return;
+      localStorage.removeItem(storageKey); render();
+    });
+
+    // Initialize
+    render();
+  </script>
+</body>
+</html>
